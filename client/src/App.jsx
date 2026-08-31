@@ -4,10 +4,13 @@ import axios from 'axios';
 import { 
   ShoppingBag, Search, Plus, Trash2, CheckCircle2, 
   Lock, Phone, MapPin, LogOut, ChevronRight, Store, ArrowRight,
-  ShieldCheck, AlertCircle, ShoppingCart, X, Filter, Settings, Navigation
+  ShieldCheck, AlertCircle, ShoppingCart, X, Filter, Settings, Navigation, Mail, User
 } from 'lucide-react';
 
+import dreamLogo from './assets/dreammegamartlogo.jpeg';
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+
 
 // Haversine formula to compute distance in kilometers between two lat/lng coordinates
 function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
@@ -34,7 +37,8 @@ export default function App() {
       return null;
     }
   });
-  const [view, setView] = useState('store'); // 'store' | 'admin'
+  const [view, setView] = useState('store'); // 'store' | 'admin' | 'contact'
+
 
   const [adminTab, setAdminTab] = useState('orders'); // 'orders' | 'products' | 'categories' | 'settings'
   
@@ -374,9 +378,12 @@ export default function App() {
               onClick={() => { setView('store'); navigate('/'); }}
               className="flex items-center gap-2.5 cursor-pointer group"
             >
-              <div className="bg-emerald-600 group-hover:bg-emerald-700 text-white p-2 rounded-xl transition-all shadow-md shadow-emerald-600/20">
-                <Store className="w-6 h-6" />
-              </div>
+              <img 
+                src={dreamLogo} 
+                alt="Dream Mega Mart Logo" 
+                className="w-10 h-10 rounded-xl object-cover shadow-sm border border-slate-200" 
+              />
+
               <div>
                 <span className="font-extrabold text-xl tracking-tight text-slate-900 block leading-none">
                   Dream<span className="text-emerald-600"> Mega Mart</span>
@@ -385,16 +392,25 @@ export default function App() {
               </div>
             </div>
 
-            {currentUser?.role === 'admin' && (
-              <div className="hidden sm:flex bg-slate-100 p-1 rounded-xl border border-slate-200">
-                <button
-                  onClick={() => { setView('store'); navigate('/'); }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    view === 'store' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Store Front
-                </button>
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+              <button
+                onClick={() => { setView('store'); navigate('/'); }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  view === 'store' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Store
+              </button>
+              <button
+                onClick={() => setView('contact')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                  view === 'contact' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Phone className="w-3.5 h-3.5" />
+                Contact Us
+              </button>
+              {currentUser?.role === 'admin' && (
                 <button
                   onClick={() => { setView('admin'); navigate('/ayushnav'); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
@@ -402,11 +418,12 @@ export default function App() {
                   }`}
                 >
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  Admin Panel
+                  Admin
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
+
 
           {/* Search bar */}
           {view === 'store' && (
@@ -571,7 +588,82 @@ export default function App() {
             )}
           </div>
         </main>
+      ) : view === 'contact' ? (
+        /* CONTACT US VIEW */
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
+          <div className="mb-8">
+            <h1 className="text-3xl font-black text-slate-900 flex items-center gap-2">
+              <Phone className="w-8 h-8 text-emerald-600" /> Contact Us
+            </h1>
+            <p className="text-xs text-slate-500 font-medium mt-1">
+              Visit our store or reach out to our team members for any inquiries or orders.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Contact Details Cards */}
+            <div className="space-y-4">
+              <h2 className="text-base font-bold text-slate-900 mb-2">Store Contacts</h2>
+              
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                <div className="bg-emerald-100 p-3 rounded-xl text-emerald-700 font-bold">
+                  <User className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-sm">Navdeep Singh</h3>
+                  <a href="tel:9610100855" className="text-xs text-emerald-600 font-bold hover:underline">
+                    📞 +91 96101 00855
+                  </a>
+                </div>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                <div className="bg-emerald-100 p-3 rounded-xl text-emerald-700 font-bold">
+                  <User className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-sm">Khushdeep Singh</h3>
+                  <a href="tel:7340448965" className="text-xs text-emerald-600 font-bold hover:underline">
+                    📞 +91 73404 48965
+                  </a>
+                </div>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                <div className="bg-emerald-100 p-3 rounded-xl text-emerald-700 font-bold">
+                  <User className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-sm">Napinder Singh</h3>
+                  <a href="tel:9352519847" className="text-xs text-emerald-600 font-bold hover:underline">
+                    📞 +91 93525 19847
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Google Map iFrame Embed */}
+            <div className="lg:col-span-2 bg-white p-4 rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+              <h2 className="text-base font-bold text-slate-900 mb-3 flex items-center gap-2">
+                <MapPin className="w-5 h-5 text-emerald-600" /> Store Location
+              </h2>
+              <div className="w-full h-80 rounded-2xl overflow-hidden border border-slate-100 flex-1">
+                <iframe 
+                  src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3462.2246140677207!2d74.3633364!3d29.8000546!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3916fb132d52fcd1%3A0x6b05ba786e3de597!2sDREAM%20MEGA%20MART!5e0!3m2!1sen!2sin!4v1788172364585!5m2!1sen!2sin" 
+                  width="100%" 
+                  height="100%" 
+                  style={{ border: 0 }} 
+                  allowFullScreen="" 
+                  loading="lazy" 
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  title="Dream Mega Mart Location"
+                ></iframe>
+              </div>
+            </div>
+          </div>
+        </main>
       ) : (
+
         /* ADMIN DASHBOARD VIEW */
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
           
@@ -1061,10 +1153,12 @@ export default function App() {
 
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 mt-auto py-6">
-        <div className="max-w-7xl mx-auto px-4 text-center text-xs text-slate-400">
-          Dream Mega Mart E-Commerce & Admin Platform © {new Date().getFullYear()}
+        <div className="max-w-7xl mx-auto px-4 text-center text-xs text-slate-500 font-medium flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span>Dream Mega Mart E-Commerce Platform © {new Date().getFullYear()}</span>
+          <span>Made with ❤️ by <a href="https://thewestcoast.digital" target="_blank" rel="noopener noreferrer" className="font-bold text-emerald-600 hover:underline">thewestcoast.digital</a></span>
         </div>
       </footer>
+
 
     </div>
   );
