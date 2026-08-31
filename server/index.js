@@ -458,6 +458,40 @@ app.get('/api/admin/orders', async (req, res) => {
   }
 });
 
+// Admin update order status API
+app.put('/api/admin/orders/:id/status', async (req, res) => {
+  const { status } = req.body;
+  if (useMemory) {
+    const order = MEMORY_DB.orders.find(o => o._id === req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    order.status = status;
+    return res.json(order);
+  }
+  try {
+    const order = await Order.findByIdAndUpdate(req.params.id, { status }, { new: true });
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    res.json(order);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Customer track orders by phone number API
+app.get('/api/orders/track/:phone', async (req, res) => {
+  const phone = req.params.phone.replace(/[^0-9]/g, '');
+  if (useMemory) {
+    const customerOrders = MEMORY_DB.orders.filter(o => o.customerPhone && o.customerPhone.replace(/[^0-9]/g, '') === phone);
+    return res.json(customerOrders);
+  }
+  try {
+    const orders = await Order.find({ customerPhone: { $regex: phone } }).sort({ createdAt: -1 });
+    res.json(orders);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
