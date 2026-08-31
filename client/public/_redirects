@@ -1,0 +1,4 @@
+/*
+  Redirects rule for single page React app routing on Netlify
+*/
+/*    /index.html   200
