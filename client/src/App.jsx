@@ -26,8 +26,16 @@ export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const savedUser = localStorage.getItem('dmm_admin_user');
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch {
+      return null;
+    }
+  });
   const [view, setView] = useState('store'); // 'store' | 'admin'
+
   const [adminTab, setAdminTab] = useState('orders'); // 'orders' | 'products' | 'categories' | 'settings'
   
   // Store Settings (Location & Radius)
@@ -61,6 +69,9 @@ export default function App() {
   const [userLocation, setUserLocation] = useState({ lat: 28.6139, lng: 77.2090 });
   const [calculatedDistance, setCalculatedDistance] = useState(0);
   const [isWithinRadius, setIsWithinRadius] = useState(true);
+  const [locationDetected, setLocationDetected] = useState(false);
+  const [isDetecting, setIsDetecting] = useState(false);
+
 
   // Auth Modal for Admin (/ayushnav)
   const [authModal, setAuthModal] = useState(false);
@@ -163,6 +174,7 @@ export default function App() {
     try {
       const res = await axios.post(`${API_BASE}/auth/login`, loginCreds);
       setCurrentUser(res.data.user);
+      localStorage.setItem('dmm_admin_user', JSON.stringify(res.data.user));
       setAuthModal(false);
       showNotify(`Welcome back, ${res.data.user.name}!`);
       if (res.data.user.role === 'admin') {
@@ -175,10 +187,12 @@ export default function App() {
 
   const handleLogout = () => {
     setCurrentUser(null);
+    localStorage.removeItem('dmm_admin_user');
     setView('store');
     navigate('/');
     showNotify('Logged out successfully');
   };
+
 
   // Cart operations (No Login Required!)
   const addToCart = (product) => {
@@ -201,58 +215,80 @@ export default function App() {
     }).filter(Boolean));
   };
 
-  // Customer GEOLOCATION trigger
-  const handleGetLocation = () => {
+  // Combined Detect Location & Place Order Handler
+  const handleDetectAndPlaceOrder = async (e) => {
+    if (e) e.preventDefault();
+    if (!checkoutForm.name || !checkoutForm.phone || !checkoutForm.addressText) {
+      return alert('Please fill in your Full Name, Mobile Number, and Address.');
+    }
+    if (cart.length === 0) return;
+
+    setIsDetecting(true);
+
+    const processOrderWithCoords = async (lat, lng) => {
+      const dist = getDistanceFromLatLonInKm(
+        storeSettings.lat,
+        storeSettings.lng,
+        lat,
+        lng
+      );
+      const roundedDist = Number(dist.toFixed(2));
+      setCalculatedDistance(roundedDist);
+      const validRadius = dist <= storeSettings.radiusKm;
+      setIsWithinRadius(validRadius);
+      setLocationDetected(true);
+      setIsDetecting(false);
+
+      if (!validRadius) {
+        return alert(`Delivery Not Available! Your location is ${roundedDist} km away. We only deliver under ${storeSettings.radiusKm} KM radius of our store.`);
+      }
+
+      try {
+        const totalAmount = cart.reduce((acc, item) => acc + (item.price * item.qty), 0);
+        await axios.post(`${API_BASE}/orders`, {
+          customerName: checkoutForm.name,
+          customerPhone: checkoutForm.phone,
+          items: cart.map(i => ({ product: i._id, name: i.name, quantity: i.qty, price: i.price })),
+          totalAmount,
+          shippingAddress: {
+            addressText: checkoutForm.addressText,
+            lat,
+            lng,
+            distanceKm: roundedDist
+          }
+        });
+
+        setCart([]);
+        setIsCartOpen(false);
+        setCheckoutModal(false);
+        setCheckoutForm({ name: '', phone: '', addressText: '' });
+        setLocationDetected(false);
+        showNotify('🎉 Order confirmed & placed successfully!');
+      } catch (err) {
+        alert(err.response?.data?.message || 'Checkout failed');
+      }
+    };
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const lat = position.coords.latitude;
           const lng = position.coords.longitude;
           setUserLocation({ lat, lng });
-          showNotify('📍 Current location detected!');
+          processOrderWithCoords(lat, lng);
         },
-        () => {
-          alert('Location access denied or unavailable. Please click on the map to set your delivery location.');
-        }
+        (err) => {
+          setIsDetecting(false);
+          alert('Location access denied or unavailable. Please enable browser location permissions.');
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
       );
     } else {
+      setIsDetecting(false);
       alert('Geolocation is not supported by your browser.');
     }
   };
 
-  // Checkout submission
-  const handleOrderSubmit = async (e) => {
-    e.preventDefault();
-    if (cart.length === 0) return;
-
-    if (!isWithinRadius) {
-      return alert(`Sorry! We only deliver within ${storeSettings.radiusKm} km radius from our store. Selected location is ${calculatedDistance} km away.`);
-    }
-
-    try {
-      const totalAmount = cart.reduce((acc, item) => acc + (item.price * item.qty), 0);
-      await axios.post(`${API_BASE}/orders`, {
-        customerName: checkoutForm.name,
-        customerPhone: checkoutForm.phone,
-        items: cart.map(i => ({ product: i._id, name: i.name, quantity: i.qty, price: i.price })),
-        totalAmount,
-        shippingAddress: {
-          addressText: checkoutForm.addressText,
-          lat: userLocation.lat,
-          lng: userLocation.lng,
-          distanceKm: calculatedDistance
-        }
-      });
-
-      setCart([]);
-      setIsCartOpen(false);
-      setCheckoutModal(false);
-      setCheckoutForm({ name: '', phone: '', addressText: '' });
-      showNotify('🎉 Order confirmed & placed successfully!');
-    } catch (err) {
-      alert(err.response?.data?.message || 'Checkout failed');
-    }
-  };
 
   // Admin Category & Product Handlers
   const handleCreateCategory = async (e) => {
@@ -896,7 +932,8 @@ export default function App() {
               <p className="text-xs text-slate-500 mt-1">Enter your details and confirm your location on the map.</p>
             </div>
 
-            <form onSubmit={handleOrderSubmit} className="space-y-4">
+            <form onSubmit={handleDetectAndPlaceOrder} className="space-y-4">
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Full Name *</label>
                 <input
@@ -933,45 +970,8 @@ export default function App() {
                 />
               </div>
 
-              {/* Map Coordinates & GPS Auto Detect */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-bold text-slate-700">Delivery Location Pin</label>
-                  <button
-                    type="button"
-                    onClick={handleGetLocation}
-                    className="text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200"
-                  >
-                    <Navigation className="w-3.5 h-3.5" /> Detect My GPS Location
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 mb-2">
-                  <div>
-                    <span className="text-[10px] text-slate-400 block font-semibold">Latitude</span>
-                    <input
-                      type="number"
-                      step="any"
-                      required
-                      value={userLocation.lat}
-                      onChange={e => setUserLocation({ ...userLocation, lat: parseFloat(e.target.value) })}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 block font-semibold">Longitude</span>
-                    <input
-                      type="number"
-                      step="any"
-                      required
-                      value={userLocation.lng}
-                      onChange={e => setUserLocation({ ...userLocation, lng: parseFloat(e.target.value) })}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* Radius Distance Status Badge */}
+              {/* Location Detection Status */}
+              {locationDetected && (
                 <div className={`p-3.5 rounded-2xl text-xs border flex items-center gap-3 ${
                   isWithinRadius 
                     ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
@@ -981,32 +981,31 @@ export default function App() {
                   <div>
                     {isWithinRadius ? (
                       <p>
-                        <b>Address Confirmed!</b> Distance to store: <b>{calculatedDistance} km</b> (Within {storeSettings.radiusKm} km limit).
+                        <b>Address Confirmed!</b> Distance: <b>{calculatedDistance} km</b> from store (Within {storeSettings.radiusKm} km limit).
                       </p>
                     ) : (
                       <p>
-                        <b>Delivery Not Available!</b> Distance: <b>{calculatedDistance} km</b>. We only deliver within <b>{storeSettings.radiusKm} km</b> of our store.
+                        <b>Delivery Not Available!</b> Distance: <b>{calculatedDistance} km</b>. We only deliver under <b>{storeSettings.radiusKm} KM</b> radius of our store.
                       </p>
                     )}
                   </div>
                 </div>
-              </div>
+              )}
 
               <button
                 type="submit"
-                disabled={!isWithinRadius}
-                className={`w-full py-3.5 font-bold rounded-xl text-xs transition-all shadow-lg flex items-center justify-center gap-2 ${
-                  isWithinRadius
-                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
-                    : 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none'
-                }`}
+                disabled={isDetecting}
+                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2"
               >
-                {isWithinRadius ? 'Confirm & Place Order' : `Only Delivery Under ${storeSettings.radiusKm} KM Radius`}
+                <Navigation className="w-4 h-4" />
+                {isDetecting ? 'Detecting Location & Verifying Radius...' : 'Detect Location & Place Order'}
               </button>
+
             </form>
           </div>
         </div>
       )}
+
 
       {/* ADMIN LOGIN MODAL (/ayushnav) */}
       {authModal === 'login' && (
