@@ -74,7 +74,12 @@ export default function App() {
   const [calculatedDistance, setCalculatedDistance] = useState(0);
   const [isWithinRadius, setIsWithinRadius] = useState(true);
   const [locationDetected, setLocationDetected] = useState(false);
-  const [isDetecting, setIsDetecting] = useState(false);
+  // Customer Order Tracking State
+  const [trackPhone, setTrackPhone] = useState('');
+  const [customerOrders, setCustomerOrders] = useState([]);
+  const [hasSearchedOrders, setHasSearchedOrders] = useState(false);
+  const [isSearchingOrders, setIsSearchingOrders] = useState(false);
+
 
 
   // Auth Modal for Admin (/ayushnav)
@@ -410,6 +415,16 @@ export default function App() {
                 <Phone className="w-3.5 h-3.5" />
                 Contact Us
               </button>
+              <button
+                onClick={() => setView('track')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                  view === 'track' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <ShoppingBag className="w-3.5 h-3.5" />
+                Track Orders
+              </button>
+
               {currentUser?.role === 'admin' && (
                 <button
                   onClick={() => { setView('admin'); navigate('/ayushnav'); }}
@@ -662,7 +677,97 @@ export default function App() {
             </div>
           </div>
         </main>
+      ) : view === 'track' ? (
+        /* CUSTOMER ORDER TRACKING VIEW */
+        <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
+          <div className="mb-8 text-center">
+            <h1 className="text-3xl font-black text-slate-900 flex items-center justify-center gap-2">
+              <ShoppingBag className="w-8 h-8 text-emerald-600" /> Track Your Orders
+            </h1>
+            <p className="text-xs text-slate-500 font-medium mt-1">
+              Enter your mobile number to view your order status in real time.
+            </p>
+          </div>
+
+          {/* Phone Search Bar */}
+          <form 
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!trackPhone) return;
+              setIsSearchingOrders(true);
+              try {
+                const res = await axios.get(`${API_BASE}/orders/track/${trackPhone}`);
+                setCustomerOrders(res.data);
+                setHasSearchedOrders(true);
+              } catch (err) { alert('Failed to fetch orders'); }
+              setIsSearchingOrders(false);
+            }} 
+            className="flex gap-3 max-w-md mx-auto mb-8"
+          >
+            <input
+              type="tel"
+              required
+              placeholder="Enter 10-digit mobile number"
+              value={trackPhone}
+              onChange={(e) => setTrackPhone(e.target.value)}
+              className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600 shadow-sm"
+            />
+            <button
+              type="submit"
+              disabled={isSearchingOrders}
+              className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow-md shadow-emerald-600/20"
+            >
+              {isSearchingOrders ? 'Searching...' : 'Search'}
+            </button>
+          </form>
+
+          {/* Tracked Orders List */}
+          {hasSearchedOrders && (
+            <div>
+              {customerOrders.length === 0 ? (
+                <div className="bg-white p-8 rounded-3xl border border-dashed border-slate-200 text-center">
+                  <AlertCircle className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                  <p className="text-xs font-bold text-slate-600">No orders found for {trackPhone}</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {customerOrders.map(order => (
+                    <div key={order._id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-4 border-b border-slate-100">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-extrabold text-sm text-slate-900">Order #{order._id.slice(-6)}</span>
+                            <span className={`text-[11px] px-3 py-1 font-black uppercase rounded-full tracking-wider ${
+                              order.status === 'completed' ? 'bg-emerald-100 text-emerald-800' :
+                              order.status === 'processing' ? 'bg-amber-100 text-amber-800' :
+                              'bg-slate-100 text-slate-700'
+                            }`}>
+                              Status: {order.status || 'Pending'}
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-slate-400 font-medium">Placed on: {new Date(order.createdAt).toLocaleString()}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-xs text-slate-400 font-medium block">Total Amount</span>
+                          <span className="text-lg font-black text-slate-900">₹{order.totalAmount}</span>
+                        </div>
+                      </div>
+
+                      <div className="text-xs text-slate-700 space-y-1">
+                        <p>Customer: <b>{order.customerName}</b> ({order.customerPhone})</p>
+                        <p>Delivery Address: <i>{order.shippingAddress?.addressText}</i></p>
+                        <p className="text-emerald-700 font-semibold">📍 Distance: {order.shippingAddress?.distanceKm} km from store</p>
+                        <p className="text-slate-500 pt-2">Items: {order.items?.map(i => `${i.name} (x${i.quantity})`).join(', ')}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </main>
       ) : (
+
 
         /* ADMIN DASHBOARD VIEW */
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
@@ -713,7 +818,27 @@ export default function App() {
                       <div>
                         <div className="flex items-center gap-2 mb-1">
                           <span className="font-bold text-xs text-slate-900">Order #{order._id.slice(-6)}</span>
-                          <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 font-extrabold rounded-full">{order.status}</span>
+                          {/* Admin Status Dropdown Selector */}
+                          <select
+                            value={order.status || 'pending'}
+                            onChange={async (e) => {
+                              const newStatus = e.target.value;
+                              try {
+                                await axios.put(`${API_BASE}/admin/orders/${order._id}/status`, { status: newStatus });
+                                fetchOrders();
+                                showNotify(`Order status updated to ${newStatus}`);
+                              } catch (err) { alert('Failed to update status'); }
+                            }}
+                            className={`text-[11px] font-bold px-2 py-1 rounded-lg border outline-none cursor-pointer ${
+                              order.status === 'completed' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                              order.status === 'processing' ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                              'bg-slate-100 text-slate-800 border-slate-300'
+                            }`}
+                          >
+                            <option value="pending">Pending</option>
+                            <option value="processing">Processing</option>
+                            <option value="completed">Completed</option>
+                          </select>
                         </div>
                         <div className="text-xs text-slate-700">
                           Customer: <b>{order.customerName}</b> • Phone: <b>{order.customerPhone}</b>
@@ -722,10 +847,31 @@ export default function App() {
                           Address: <i>{order.shippingAddress?.addressText || 'Not specified'}</i>
                         </div>
                         <div className="text-[11px] text-emerald-700 font-semibold mt-1">
-                          📍 Distance from Store: <b>{order.shippingAddress?.distanceKm ?? 'N/A'} km</b> (Lat: {order.shippingAddress?.lat?.toFixed(4)}, Lng: {order.shippingAddress?.lng?.toFixed(4)})
+                          📍 Distance from Store: <b>{order.shippingAddress?.distanceKm ?? 'N/A'} km</b>
                         </div>
                         <div className="text-[11px] text-slate-500 mt-1">
                           Items: {order.items?.map(i => `${i.name} (${i.quantity}x)`).join(', ')}
+                        </div>
+
+                        {/* Call Customer & Navigation Directions Buttons */}
+                        <div className="flex items-center gap-2 mt-3">
+                          <a
+                            href={`tel:${order.customerPhone}`}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                          >
+                            <Phone className="w-3.5 h-3.5" /> Call Customer
+                          </a>
+                          
+                          {order.shippingAddress?.lat && order.shippingAddress?.lng && (
+                            <a
+                              href={`https://www.google.com/maps/dir/?api=1&destination=${order.shippingAddress.lat},${order.shippingAddress.lng}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                            >
+                              <Navigation className="w-3.5 h-3.5" /> Get Directions
+                            </a>
+                          )}
                         </div>
                       </div>
                       <div className="text-right">
@@ -738,6 +884,7 @@ export default function App() {
               )}
             </div>
           )}
+
 
           {/* TAB 2: STORE DELIVERY RADIUS & COORDINATES SETTINGS */}
           {adminTab === 'settings' && (
