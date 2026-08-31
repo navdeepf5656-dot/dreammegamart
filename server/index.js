@@ -42,8 +42,16 @@ const ProductSchema = new mongoose.Schema({
   image: { type: String, default: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=400' }
 }, { timestamps: true });
 
+const StoreSettingsSchema = new mongoose.Schema({
+  storeName: { type: String, default: 'Dream Mega Mart' },
+  lat: { type: Number, default: 28.6139 }, // Default Delhi
+  lng: { type: Number, default: 77.2090 },
+  radiusKm: { type: Number, default: 10 } // Default 10km radius
+}, { timestamps: true });
+
 const OrderSchema = new mongoose.Schema({
-  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  customerName: { type: String, required: true },
+  customerPhone: { type: String, required: true },
   items: [{
     product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
     name: String,
@@ -52,10 +60,10 @@ const OrderSchema = new mongoose.Schema({
   }],
   totalAmount: Number,
   shippingAddress: {
-    name: String,
-    phone: String,
-    village: String,
-    details: String
+    addressText: String,
+    lat: Number,
+    lng: Number,
+    distanceKm: Number
   },
   status: { type: String, enum: ['pending', 'processing', 'completed'], default: 'pending' }
 }, { timestamps: true });
@@ -65,6 +73,8 @@ const UserRequest = mongoose.model('UserRequest', UserRequestSchema);
 const Category = mongoose.model('Category', CategorySchema);
 const Product = mongoose.model('Product', ProductSchema);
 const Order = mongoose.model('Order', OrderSchema);
+const StoreSettings = mongoose.model('StoreSettings', StoreSettingsSchema);
+
 
 // Memory storage fallback if MongoDB URI not specified
 const MEMORY_DB = {
@@ -361,13 +371,65 @@ app.delete('/api/products/:id', async (req, res) => {
   }
 });
 
+// Store Settings APIs
+app.get('/api/settings', async (req, res) => {
+  if (useMemory) {
+    if (!MEMORY_DB.settings) {
+      MEMORY_DB.settings = { storeName: 'Dream Mega Mart', lat: 28.6139, lng: 77.2090, radiusKm: 10 };
+    }
+    return res.json(MEMORY_DB.settings);
+  }
+  try {
+    let settings = await StoreSettings.findOne();
+    if (!settings) {
+      settings = await StoreSettings.create({ storeName: 'Dream Mega Mart', lat: 28.6139, lng: 77.2090, radiusKm: 10 });
+    }
+    res.json(settings);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/admin/settings', async (req, res) => {
+  const { storeName, lat, lng, radiusKm } = req.body;
+  if (useMemory) {
+    MEMORY_DB.settings = {
+      storeName: storeName || 'Dream Mega Mart',
+      lat: Number(lat) || 28.6139,
+      lng: Number(lng) || 77.2090,
+      radiusKm: Number(radiusKm) || 10
+    };
+    return res.json(MEMORY_DB.settings);
+  }
+  try {
+    let settings = await StoreSettings.findOne();
+    if (!settings) {
+      settings = new StoreSettings({ storeName, lat, lng, radiusKm });
+    } else {
+      if (storeName !== undefined) settings.storeName = storeName;
+      if (lat !== undefined) settings.lat = Number(lat);
+      if (lng !== undefined) settings.lng = Number(lng);
+      if (radiusKm !== undefined) settings.radiusKm = Number(radiusKm);
+    }
+    await settings.save();
+    res.json(settings);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // Order APIs
 app.post('/api/orders', async (req, res) => {
-  const { userId, items, totalAmount, shippingAddress } = req.body;
+  const { customerName, customerPhone, items, totalAmount, shippingAddress } = req.body;
+  if (!customerName || !customerPhone) {
+    return res.status(400).json({ message: 'Customer Name and Mobile Number are required.' });
+  }
+
   if (useMemory) {
     const newOrder = {
       _id: 'order_' + Date.now(),
-      user: userId,
+      customerName,
+      customerPhone,
       items,
       totalAmount,
       shippingAddress,
@@ -378,7 +440,7 @@ app.post('/api/orders', async (req, res) => {
     return res.json(newOrder);
   }
   try {
-    const newOrder = new Order({ user: userId, items, totalAmount, shippingAddress });
+    const newOrder = new Order({ customerName, customerPhone, items, totalAmount, shippingAddress });
     await newOrder.save();
     res.json(newOrder);
   } catch (err) {
@@ -389,12 +451,13 @@ app.post('/api/orders', async (req, res) => {
 app.get('/api/admin/orders', async (req, res) => {
   if (useMemory) return res.json(MEMORY_DB.orders);
   try {
-    const orders = await Order.find().populate('user').sort({ createdAt: -1 });
+    const orders = await Order.find().sort({ createdAt: -1 });
     res.json(orders);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
