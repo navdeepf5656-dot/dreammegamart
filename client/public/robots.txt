@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /ayushnav
+
+Sitemap: https://dreammegamart.vercel.app/sitemap.xml

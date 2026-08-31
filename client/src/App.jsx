@@ -1,67 +1,139 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
-  ShoppingBag, Search, User as UserIcon, Plus, Trash2, CheckCircle2, 
-  Send, Lock, Phone, Home, LogOut, ChevronRight, Store, ArrowRight,
-  ShieldCheck, AlertCircle, ShoppingCart, X, Filter
+  ShoppingBag, Search, Plus, Trash2, CheckCircle2, 
+  Lock, Phone, MapPin, LogOut, ChevronRight, Store, ArrowRight,
+  ShieldCheck, AlertCircle, ShoppingCart, X, Filter, Settings, Navigation
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
-const VILLAGES = [
-  'Rampur', 'Sundarpur', 'Kishanpur', 'Govindpur', 'Akbarpur', 
-  'Chandpur', 'Shivpur', 'Devpur', 'Madhavpur', 'Other'
-];
+// Haversine formula to compute distance in kilometers between two lat/lng coordinates
+function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Radius of the earth in km
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * 
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 
 export default function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
   const [currentUser, setCurrentUser] = useState(null);
   const [view, setView] = useState('store'); // 'store' | 'admin'
-  const [adminTab, setAdminTab] = useState('requests'); // 'requests' | 'products' | 'categories' | 'orders'
+  const [adminTab, setAdminTab] = useState('orders'); // 'orders' | 'products' | 'categories' | 'settings'
   
+  // Store Settings (Location & Radius)
+  const [storeSettings, setStoreSettings] = useState({
+    storeName: 'Dream Mega Mart',
+    lat: 28.6139,
+    lng: 77.2090,
+    radiusKm: 10
+  });
+
   // Data States
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
-  const [userRequests, setUserRequests] = useState([]);
   const [orders, setOrders] = useState([]);
   
   // Filters & Search
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Cart
+  // Cart & Checkout
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [checkoutModal, setCheckoutModal] = useState(false);
+  const [checkoutForm, setCheckoutForm] = useState({
+    name: '',
+    phone: '',
+    addressText: ''
+  });
 
-  // Auth & Request Modals
-  const [authModal, setAuthModal] = useState(false); // false | 'login' | 'request' | 'pending'
+  // Customer Map State
+  const [userLocation, setUserLocation] = useState({ lat: 28.6139, lng: 77.2090 });
+  const [calculatedDistance, setCalculatedDistance] = useState(0);
+  const [isWithinRadius, setIsWithinRadius] = useState(true);
+
+  // Auth Modal for Admin (/ayushnav)
+  const [authModal, setAuthModal] = useState(false);
   const [loginCreds, setLoginCreds] = useState({ userId: '', password: '' });
-  const [requestData, setRequestData] = useState({ name: '', phone: '', village: VILLAGES[0] });
-  const [submittedReqInfo, setSubmittedReqInfo] = useState(null);
 
   // Admin Form States
   const [newCat, setNewCat] = useState({ name: '', image: '' });
   const [newProd, setNewProd] = useState({ name: '', category: '', price: '', description: '', image: '', stock: 50 });
-  const [approvalModal, setApprovalModal] = useState(null); // request object to approve
-  const [customCreds, setCustomCreds] = useState({ userId: '', password: '' });
+  const [adminSettingsForm, setAdminSettingsForm] = useState({ storeName: '', lat: 28.6139, lng: 77.2090, radiusKm: 10 });
 
-  // Notifications / Feedback
+  // Notifications
   const [notification, setNotification] = useState('');
 
+  // Dynamic SEO Page Title
   useEffect(() => {
+    if (view === 'admin') {
+      document.title = 'Admin Dashboard | Dream Mega Mart';
+    } else {
+      document.title = 'Dream Mega Mart | Fresh Grocery & Essentials Delivery';
+    }
+  }, [view]);
+
+  useEffect(() => {
+    fetchStoreSettings();
     fetchCategories();
     fetchProducts();
   }, []);
 
+
+  useEffect(() => {
+    if (location.pathname === '/ayushnav') {
+      if (currentUser?.role === 'admin') {
+        setView('admin');
+      } else {
+        setAuthModal('login');
+      }
+    }
+  }, [location.pathname, currentUser]);
+
   useEffect(() => {
     if (view === 'admin') {
-      fetchUserRequests();
       fetchOrders();
     }
   }, [view]);
 
+  // Calculate distance whenever user location or store settings change
+  useEffect(() => {
+    if (storeSettings.lat && storeSettings.lng && userLocation.lat && userLocation.lng) {
+      const dist = getDistanceFromLatLonInKm(
+        storeSettings.lat,
+        storeSettings.lng,
+        userLocation.lat,
+        userLocation.lng
+      );
+      setCalculatedDistance(Number(dist.toFixed(2)));
+      setIsWithinRadius(dist <= storeSettings.radiusKm);
+    }
+  }, [userLocation, storeSettings]);
+
   const showNotify = (msg) => {
     setNotification(msg);
     setTimeout(() => setNotification(''), 4000);
+  };
+
+  const fetchStoreSettings = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/settings`);
+      if (res.data) {
+        setStoreSettings(res.data);
+        setAdminSettingsForm(res.data);
+        setUserLocation({ lat: res.data.lat, lng: res.data.lng });
+      }
+    } catch (err) { console.error(err); }
   };
 
   const fetchCategories = async () => {
@@ -78,13 +150,6 @@ export default function App() {
     } catch (err) { console.error(err); }
   };
 
-  const fetchUserRequests = async () => {
-    try {
-      const res = await axios.get(`${API_BASE}/admin/requests`);
-      setUserRequests(res.data);
-    } catch (err) { console.error(err); }
-  };
-
   const fetchOrders = async () => {
     try {
       const res = await axios.get(`${API_BASE}/admin/orders`);
@@ -92,7 +157,7 @@ export default function App() {
     } catch (err) { console.error(err); }
   };
 
-  // Auth Handlers
+  // Admin Login
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
@@ -104,28 +169,92 @@ export default function App() {
         setView('admin');
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Login failed');
-    }
-  };
-
-  const handleRequestSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await axios.post(`${API_BASE}/requests/create`, requestData);
-      setSubmittedReqInfo(res.data.request);
-      setAuthModal('pending');
-    } catch (err) {
-      alert(err.response?.data?.message || 'Request submission failed');
+      alert(err.response?.data?.message || 'Admin login failed');
     }
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     setView('store');
+    navigate('/');
     showNotify('Logged out successfully');
   };
 
-  // Admin Category CRUD
+  // Cart operations (No Login Required!)
+  const addToCart = (product) => {
+    const existing = cart.find(item => item._id === product._id);
+    if (existing) {
+      setCart(cart.map(item => item._id === product._id ? { ...item, qty: item.qty + 1 } : item));
+    } else {
+      setCart([...cart, { ...product, qty: 1 }]);
+    }
+    showNotify(`${product.name} added to cart!`);
+  };
+
+  const updateCartQty = (id, delta) => {
+    setCart(cart.map(item => {
+      if (item._id === id) {
+        const newQty = item.qty + delta;
+        return newQty > 0 ? { ...item, qty: newQty } : null;
+      }
+      return item;
+    }).filter(Boolean));
+  };
+
+  // Customer GEOLOCATION trigger
+  const handleGetLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          setUserLocation({ lat, lng });
+          showNotify('📍 Current location detected!');
+        },
+        () => {
+          alert('Location access denied or unavailable. Please click on the map to set your delivery location.');
+        }
+      );
+    } else {
+      alert('Geolocation is not supported by your browser.');
+    }
+  };
+
+  // Checkout submission
+  const handleOrderSubmit = async (e) => {
+    e.preventDefault();
+    if (cart.length === 0) return;
+
+    if (!isWithinRadius) {
+      return alert(`Sorry! We only deliver within ${storeSettings.radiusKm} km radius from our store. Selected location is ${calculatedDistance} km away.`);
+    }
+
+    try {
+      const totalAmount = cart.reduce((acc, item) => acc + (item.price * item.qty), 0);
+      await axios.post(`${API_BASE}/orders`, {
+        customerName: checkoutForm.name,
+        customerPhone: checkoutForm.phone,
+        items: cart.map(i => ({ product: i._id, name: i.name, quantity: i.qty, price: i.price })),
+        totalAmount,
+        shippingAddress: {
+          addressText: checkoutForm.addressText,
+          lat: userLocation.lat,
+          lng: userLocation.lng,
+          distanceKm: calculatedDistance
+        }
+      });
+
+      setCart([]);
+      setIsCartOpen(false);
+      setCheckoutModal(false);
+      setCheckoutForm({ name: '', phone: '', addressText: '' });
+      showNotify('🎉 Order confirmed & placed successfully!');
+    } catch (err) {
+      alert(err.response?.data?.message || 'Checkout failed');
+    }
+  };
+
+  // Admin Category & Product Handlers
   const handleCreateCategory = async (e) => {
     e.preventDefault();
     if (!newCat.name) return;
@@ -146,7 +275,6 @@ export default function App() {
     } catch (err) { console.error(err); }
   };
 
-  // Admin Product CRUD
   const handleCreateProduct = async (e) => {
     e.preventDefault();
     if (!newProd.name || !newProd.category || !newProd.price) {
@@ -169,90 +297,15 @@ export default function App() {
     } catch (err) { console.error(err); }
   };
 
-  // Admin Approve User Access & Generate Credentials
-  const handleApproveUser = async (e) => {
+  // Admin Settings Save (Store Location & Radius)
+  const handleSaveStoreSettings = async (e) => {
     e.preventDefault();
-    if (!approvalModal) return;
-
     try {
-      const res = await axios.post(`${API_BASE}/admin/requests/approve`, {
-        requestId: approvalModal._id,
-        customUserId: customCreds.userId || undefined,
-        password: customCreds.password || undefined
-      });
-
-      const { userId, password, phone, name } = res.data.credentials;
-      
-      // WhatsApp link preparation
-      const waMessage = encodeURIComponent(
-        `Hello ${name},\n\nYour account request for Village SuperStore has been APPROVED! 🎉\n\nLogin Details:\nUser ID: ${userId}\nPassword: ${password}\n\nLogin & shop here: http://localhost:5173`
-      );
-      const cleanPhone = phone.replace(/[^0-9]/g, '');
-      const waUrl = `https://api.whatsapp.com/send?phone=91${cleanPhone}&text=${waMessage}`;
-
-      // Open WhatsApp in new window/tab
-      window.open(waUrl, '_blank');
-
-      setApprovalModal(null);
-      setCustomCreds({ userId: '', password: '' });
-      fetchUserRequests();
-      showNotify(`User approved! Credentials generated: ID (${userId}). WhatsApp window opened.`);
+      const res = await axios.post(`${API_BASE}/admin/settings`, adminSettingsForm);
+      setStoreSettings(res.data);
+      showNotify('Store location and radius settings updated successfully!');
     } catch (err) {
-      alert(err.response?.data?.message || 'Approval failed');
-    }
-  };
-
-  // Cart operations
-  const addToCart = (product) => {
-    if (!currentUser) {
-      setAuthModal('login');
-      return;
-    }
-    const existing = cart.find(item => item._id === product._id);
-    if (existing) {
-      setCart(cart.map(item => item._id === product._id ? { ...item, qty: item.qty + 1 } : item));
-    } else {
-      setCart([...cart, { ...product, qty: 1 }]);
-    }
-    showNotify(`${product.name} added to cart!`);
-  };
-
-  const updateCartQty = (id, delta) => {
-    setCart(cart.map(item => {
-      if (item._id === id) {
-        const newQty = item.qty + delta;
-        return newQty > 0 ? { ...item, qty: newQty } : null;
-      }
-      return item;
-    }).filter(Boolean));
-  };
-
-  const handleCheckout = async () => {
-    if (!currentUser) {
-      setAuthModal('login');
-      return;
-    }
-    if (cart.length === 0) return;
-
-    try {
-      const totalAmount = cart.reduce((acc, item) => acc + (item.price * item.qty), 0);
-      await axios.post(`${API_BASE}/orders`, {
-        userId: currentUser.id,
-        items: cart.map(i => ({ product: i._id, name: i.name, quantity: i.qty, price: i.price })),
-        totalAmount,
-        shippingAddress: {
-          name: currentUser.name,
-          phone: currentUser.phone,
-          village: currentUser.village,
-          details: `Village: ${currentUser.village}`
-        }
-      });
-
-      setCart([]);
-      setIsCartOpen(false);
-      showNotify('🎉 Order placed successfully!');
-    } catch (err) {
-      alert(err.response?.data?.message || 'Checkout failed');
+      alert(err.response?.data?.message || 'Failed to update settings');
     }
   };
 
@@ -279,10 +332,10 @@ export default function App() {
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
           
-          {/* Logo & View Toggle */}
+          {/* Logo */}
           <div className="flex items-center gap-6">
             <div 
-              onClick={() => setView('store')}
+              onClick={() => { setView('store'); navigate('/'); }}
               className="flex items-center gap-2.5 cursor-pointer group"
             >
               <div className="bg-emerald-600 group-hover:bg-emerald-700 text-white p-2 rounded-xl transition-all shadow-md shadow-emerald-600/20">
@@ -290,16 +343,16 @@ export default function App() {
               </div>
               <div>
                 <span className="font-extrabold text-xl tracking-tight text-slate-900 block leading-none">
-                  Village<span className="text-emerald-600">Store</span>
+                  Dream<span className="text-emerald-600"> Mega Mart</span>
                 </span>
-                <span className="text-[10px] text-slate-500 font-semibold tracking-wider uppercase">Direct Supply</span>
+                <span className="text-[10px] text-slate-500 font-semibold tracking-wider uppercase">Direct Delivery Store</span>
               </div>
             </div>
 
             {currentUser?.role === 'admin' && (
               <div className="hidden sm:flex bg-slate-100 p-1 rounded-xl border border-slate-200">
                 <button
-                  onClick={() => setView('store')}
+                  onClick={() => { setView('store'); navigate('/'); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                     view === 'store' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
                   }`}
@@ -307,7 +360,7 @@ export default function App() {
                   Store Front
                 </button>
                 <button
-                  onClick={() => setView('admin')}
+                  onClick={() => { setView('admin'); navigate('/ayushnav'); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
                     view === 'admin' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
                   }`}
@@ -319,13 +372,13 @@ export default function App() {
             )}
           </div>
 
-          {/* Search bar (Only on store view) */}
+          {/* Search bar */}
           {view === 'store' && (
             <div className="flex-1 max-w-md hidden md:block relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search fresh groceries, vegetables..."
+                placeholder="Search products, groceries..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 bg-slate-100 border border-transparent rounded-xl text-sm focus:outline-none focus:bg-white focus:border-emerald-500 transition-all"
@@ -333,43 +386,28 @@ export default function App() {
             </div>
           )}
 
-          {/* User Controls */}
+          {/* Cart & Controls */}
           <div className="flex items-center gap-3">
             {view === 'store' && (
               <button
                 onClick={() => setIsCartOpen(true)}
-                className="relative p-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all text-slate-700"
+                className="relative p-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all text-slate-700 flex items-center gap-2"
               >
                 <ShoppingCart className="w-5 h-5" />
+                <span className="text-xs font-bold hidden sm:inline">Cart</span>
                 {cart.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-emerald-600 text-white text-[11px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-white">
+                  <span className="bg-emerald-600 text-white text-[11px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
                     {cart.reduce((a, b) => a + b.qty, 0)}
                   </span>
                 )}
               </button>
             )}
 
-            {currentUser ? (
-              <div className="flex items-center gap-3 bg-slate-100 pl-3 pr-1 py-1 rounded-xl">
-                <div className="text-right hidden sm:block">
-                  <div className="text-xs font-bold text-slate-900">{currentUser.name}</div>
-                  <div className="text-[10px] text-slate-500 font-medium">ID: {currentUser.userId} ({currentUser.village})</div>
-                </div>
-                <button
-                  onClick={handleLogout}
-                  title="Logout"
-                  className="p-2 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors"
-                >
+            {currentUser && (
+              <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
+                <span className="text-xs font-bold text-slate-900">{currentUser.name} (Admin)</span>
+                <button onClick={handleLogout} title="Logout" className="p-1 hover:bg-slate-200 rounded-lg text-slate-600">
                   <LogOut className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setAuthModal('login')}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-emerald-600/20"
-                >
-                  Sign In / Request ID
                 </button>
               </div>
             )}
@@ -377,7 +415,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* MAIN CONTENT AREA */}
+      {/* MAIN STORE FRONT */}
       {view === 'store' ? (
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
           
@@ -385,27 +423,18 @@ export default function App() {
           <div className="relative rounded-3xl overflow-hidden bg-gradient-to-r from-emerald-800 to-teal-900 text-white p-8 sm:p-12 mb-10 shadow-xl">
             <div className="relative z-10 max-w-xl">
               <span className="inline-block px-3 py-1 bg-emerald-500/20 text-emerald-300 text-xs font-bold rounded-full mb-3 backdrop-blur-md">
-                🌾 Direct Village Delivery
+                📍 Radius Delivery Service ({storeSettings.radiusKm} KM Range)
               </span>
               <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight mb-4 leading-tight">
-                Fresh Supplies Delivered To Your Village.
+                Fresh Items Delivered Directly To Your Door.
               </h1>
               <p className="text-emerald-100/90 text-sm sm:text-base mb-6 font-medium">
-                No ID? Request access with your Phone Number & Village selection to get your login ID via WhatsApp.
+                No login required! Add products to cart, enter your phone number, and pinpoint your address on the map during checkout.
               </p>
-              {!currentUser && (
-                <button
-                  onClick={() => setAuthModal('request')}
-                  className="px-6 py-3 bg-white text-emerald-900 hover:bg-emerald-50 text-xs font-extrabold uppercase tracking-wider rounded-xl shadow-lg transition-all flex items-center gap-2"
-                >
-                  Request User ID Now <ArrowRight className="w-4 h-4" />
-                </button>
-              )}
             </div>
-            <div className="absolute right-0 bottom-0 top-0 w-1/2 opacity-20 pointer-events-none bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-transparent to-transparent"></div>
           </div>
 
-          {/* Category Pills Slider */}
+          {/* Categories */}
           <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
@@ -452,13 +481,12 @@ export default function App() {
 
           {/* Product Grid */}
           <div className="mb-12">
-            <h2 className="text-xl font-bold text-slate-900 mb-6">Available Items</h2>
+            <h2 className="text-xl font-bold text-slate-900 mb-6">Store Items</h2>
 
             {filteredProducts.length === 0 ? (
               <div className="text-center py-16 bg-white rounded-3xl border border-dashed border-slate-200">
                 <AlertCircle className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                 <h3 className="text-base font-bold text-slate-700">No products found</h3>
-                <p className="text-xs text-slate-500 mt-1">Try selecting a different category or clear your search.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
@@ -484,7 +512,7 @@ export default function App() {
                           {product.name}
                         </h3>
                         <p className="text-xs text-slate-500 line-clamp-2 mb-4">
-                          {product.description || 'Fresh quality stock from trusted suppliers.'}
+                          {product.description || 'Fresh quality stock.'}
                         </p>
                       </div>
 
@@ -508,26 +536,26 @@ export default function App() {
           </div>
         </main>
       ) : (
-        /* ADMIN PANEL VIEW */
+        /* ADMIN DASHBOARD VIEW */
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
           
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
             <div>
               <h1 className="text-2xl font-black text-slate-900 flex items-center gap-2">
-                <ShieldCheck className="w-7 h-7 text-emerald-600" /> Admin Control Dashboard
+                <ShieldCheck className="w-7 h-7 text-emerald-600" /> Admin Dashboard
               </h1>
               <p className="text-xs text-slate-500 font-medium mt-1">
-                Manage user requests, dispatch login IDs via WhatsApp, and control store inventory.
+                Configure delivery radius, manage customer orders & store inventory.
               </p>
             </div>
 
             {/* Admin Tabs */}
             <div className="flex bg-slate-200/70 p-1 rounded-2xl self-start md:self-auto border border-slate-300/50">
               {[
-                { id: 'requests', label: `User Requests (${userRequests.filter(r => r.status === 'pending').length})` },
+                { id: 'orders', label: `Orders (${orders.length})` },
+                { id: 'settings', label: `Delivery Radius Settings` },
                 { id: 'products', label: `Products (${products.length})` },
-                { id: 'categories', label: `Categories (${categories.length})` },
-                { id: 'orders', label: `Orders (${orders.length})` }
+                { id: 'categories', label: `Categories (${categories.length})` }
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -544,298 +572,29 @@ export default function App() {
             </div>
           </div>
 
-          {/* TAB 1: USER REQUESTS MANAGEMENT & WHATSAPP DISPATCH */}
-          {adminTab === 'requests' && (
-            <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                <div>
-                  <h2 className="text-base font-bold text-slate-900">User Account Requests</h2>
-                  <p className="text-xs text-slate-500">Approve requests to create User ID & Password and send instantly via WhatsApp.</p>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-100">
-                    <tr>
-                      <th className="px-6 py-4">Customer Name</th>
-                      <th className="px-6 py-4">Phone Number</th>
-                      <th className="px-6 py-4">Village</th>
-                      <th className="px-6 py-4">Status</th>
-                      <th className="px-6 py-4">Generated Credentials</th>
-                      <th className="px-6 py-4 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {userRequests.length === 0 ? (
-                      <tr>
-                        <td colSpan="6" className="px-6 py-12 text-center text-slate-400 font-medium">
-                          No registration requests submitted yet.
-                        </td>
-                      </tr>
-                    ) : (
-                      userRequests.map((req) => (
-                        <tr key={req._id} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="px-6 py-4 font-bold text-slate-900">{req.name}</td>
-                          <td className="px-6 py-4 font-semibold text-slate-700">{req.phone}</td>
-                          <td className="px-6 py-4 font-medium text-slate-600">
-                            <span className="px-2.5 py-1 bg-slate-100 rounded-lg border border-slate-200">
-                              📍 {req.village}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wide ${
-                              req.status === 'approved' 
-                                ? 'bg-emerald-100 text-emerald-800' 
-                                : 'bg-amber-100 text-amber-800'
-                            }`}>
-                              {req.status}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            {req.generatedUserId ? (
-                              <div className="font-mono text-[11px] text-slate-800">
-                                <div><span className="text-slate-400">ID:</span> <b>{req.generatedUserId}</b></div>
-                                <div><span className="text-slate-400">Pass:</span> <b>{req.generatedPassword}</b></div>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 italic">Not generated</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            {req.status === 'pending' ? (
-                              <button
-                                onClick={() => {
-                                  setApprovalModal(req);
-                                  setCustomCreds({
-                                    userId: 'USR' + Math.floor(1000 + Math.random() * 9000),
-                                    password: Math.random().toString(36).slice(-6)
-                                  });
-                                }}
-                                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-md shadow-emerald-600/20 transition-all flex items-center gap-1.5 ml-auto"
-                              >
-                                <Send className="w-3.5 h-3.5" /> Generate & Send WhatsApp
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => {
-                                  const waMessage = encodeURIComponent(
-                                    `Hello ${req.name},\n\nReminder of your Village SuperStore Login Details:\nUser ID: ${req.generatedUserId}\nPassword: ${req.generatedPassword}\n\nLogin & shop here: http://localhost:5173`
-                                  );
-                                  const cleanPhone = req.phone.replace(/[^0-9]/g, '');
-                                  window.open(`https://api.whatsapp.com/send?phone=91${cleanPhone}&text=${waMessage}`, '_blank');
-                                }}
-                                className="px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 text-emerald-700 hover:text-emerald-800 border border-slate-200 hover:border-emerald-300 font-bold rounded-xl text-[11px] transition-all flex items-center gap-1.5 ml-auto"
-                              >
-                                <Send className="w-3 h-3 text-emerald-600" /> Resend WhatsApp
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 2: PRODUCTS MANAGEMENT */}
-          {adminTab === 'products' && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Product Creation Form */}
-              <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm h-fit">
-                <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
-                  <Plus className="w-5 h-5 text-emerald-600" /> Add New Product
-                </h2>
-                <form onSubmit={handleCreateProduct} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Product Name *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Fresh Mustard Oil 1L"
-                      value={newProd.name}
-                      onChange={e => setNewProd({ ...newProd, name: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-emerald-600"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Category *</label>
-                    <select
-                      required
-                      value={newProd.category}
-                      onChange={e => setNewProd({ ...newProd, category: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-emerald-600"
-                    >
-                      <option value="">Select Category</option>
-                      {categories.map(c => (
-                        <option key={c._id} value={c._id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Price (₹) *</label>
-                      <input
-                        type="number"
-                        required
-                        placeholder="180"
-                        value={newProd.price}
-                        onChange={e => setNewProd({ ...newProd, price: e.target.value })}
-                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-emerald-600"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Stock</label>
-                      <input
-                        type="number"
-                        placeholder="50"
-                        value={newProd.stock}
-                        onChange={e => setNewProd({ ...newProd, stock: e.target.value })}
-                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-emerald-600"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Image URL</label>
-                    <input
-                      type="url"
-                      placeholder="https://..."
-                      value={newProd.image}
-                      onChange={e => setNewProd({ ...newProd, image: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-emerald-600"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Description</label>
-                    <textarea
-                      rows="3"
-                      placeholder="Brief details about the product..."
-                      value={newProd.description}
-                      onChange={e => setNewProd({ ...newProd, description: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-emerald-600"
-                    ></textarea>
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow-md shadow-emerald-600/20"
-                  >
-                    Save Product
-                  </button>
-                </form>
-              </div>
-
-              {/* Product List */}
-              <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
-                <div className="p-6 border-b border-slate-100">
-                  <h2 className="text-base font-bold text-slate-900">Current Store Products</h2>
-                </div>
-                <div className="divide-y divide-slate-100">
-                  {products.map(p => (
-                    <div key={p._id} className="p-4 flex items-center justify-between gap-4 hover:bg-slate-50">
-                      <div className="flex items-center gap-4">
-                        <img src={p.image} alt="" className="w-12 h-12 rounded-xl object-cover border border-slate-200" />
-                        <div>
-                          <h4 className="font-bold text-slate-900 text-xs">{p.name}</h4>
-                          <span className="text-[11px] text-slate-500 font-medium">₹{p.price} • Stock: {p.stock}</span>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleDeleteProduct(p._id)}
-                        className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: CATEGORIES MANAGEMENT */}
-          {adminTab === 'categories' && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm h-fit">
-                <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
-                  <Plus className="w-5 h-5 text-emerald-600" /> Create Category
-                </h2>
-                <form onSubmit={handleCreateCategory} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Category Name *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Spices & Oils"
-                      value={newCat.name}
-                      onChange={e => setNewCat({ ...newCat, name: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-emerald-600"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Cover Image URL</label>
-                    <input
-                      type="url"
-                      placeholder="https://..."
-                      value={newCat.image}
-                      onChange={e => setNewCat({ ...newCat, image: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-emerald-600"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow-md shadow-emerald-600/20"
-                  >
-                    Save Category
-                  </button>
-                </form>
-              </div>
-
-              <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden p-6">
-                <h2 className="text-base font-bold text-slate-900 mb-4">Existing Categories</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {categories.map(c => (
-                    <div key={c._id} className="flex items-center justify-between p-3 border border-slate-100 rounded-2xl bg-slate-50">
-                      <div className="flex items-center gap-3">
-                        <img src={c.image} alt="" className="w-10 h-10 rounded-xl object-cover" />
-                        <span className="font-bold text-slate-900 text-xs">{c.name}</span>
-                      </div>
-                      <button
-                        onClick={() => handleDeleteCategory(c._id)}
-                        className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 4: ORDERS */}
+          {/* TAB 1: ORDERS */}
           {adminTab === 'orders' && (
             <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm p-6">
-              <h2 className="text-base font-bold text-slate-900 mb-4">Customer Orders</h2>
+              <h2 className="text-base font-bold text-slate-900 mb-4">Customer Orders & Delivery Coordinates</h2>
               {orders.length === 0 ? (
                 <p className="text-xs text-slate-500 py-6 text-center">No orders placed yet.</p>
               ) : (
                 <div className="space-y-4">
                   {orders.map(order => (
-                    <div key={order._id} className="p-4 border border-slate-100 rounded-2xl bg-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div key={order._id} className="p-5 border border-slate-100 rounded-2xl bg-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div>
                         <div className="flex items-center gap-2 mb-1">
                           <span className="font-bold text-xs text-slate-900">Order #{order._id.slice(-6)}</span>
                           <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 font-extrabold rounded-full">{order.status}</span>
                         </div>
-                        <div className="text-xs text-slate-600">
-                          Customer: <b>{order.shippingAddress?.name || 'User'}</b> (Phone: {order.shippingAddress?.phone}, Village: {order.shippingAddress?.village})
+                        <div className="text-xs text-slate-700">
+                          Customer: <b>{order.customerName}</b> • Phone: <b>{order.customerPhone}</b>
+                        </div>
+                        <div className="text-xs text-slate-600 mt-1">
+                          Address: <i>{order.shippingAddress?.addressText || 'Not specified'}</i>
+                        </div>
+                        <div className="text-[11px] text-emerald-700 font-semibold mt-1">
+                          📍 Distance from Store: <b>{order.shippingAddress?.distanceKm ?? 'N/A'} km</b> (Lat: {order.shippingAddress?.lat?.toFixed(4)}, Lng: {order.shippingAddress?.lng?.toFixed(4)})
                         </div>
                         <div className="text-[11px] text-slate-500 mt-1">
                           Items: {order.items?.map(i => `${i.name} (${i.quantity}x)`).join(', ')}
@@ -851,231 +610,207 @@ export default function App() {
               )}
             </div>
           )}
-        </main>
-      )}
 
-      {/* MODAL: AUTHENTICATION / REQUEST ID */}
-      {authModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-3xl p-6 sm:p-8 shadow-2xl relative">
-            <button
-              onClick={() => setAuthModal(false)}
-              className="absolute top-5 right-5 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
-            >
-              <X className="w-5 h-5" />
-            </button>
+          {/* TAB 2: STORE DELIVERY RADIUS & COORDINATES SETTINGS */}
+          {adminTab === 'settings' && (
+            <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm max-w-2xl">
+              <h2 className="text-base font-bold text-slate-900 mb-2 flex items-center gap-2">
+                <Settings className="w-5 h-5 text-emerald-600" /> Delivery Radius & Store Coordinates
+              </h2>
+              <p className="text-xs text-slate-500 mb-6">
+                Set your physical store latitude/longitude and maximum delivery radius in kilometers.
+              </p>
 
-            {authModal === 'login' && (
-              <div>
-                <div className="text-center mb-6">
-                  <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                    <Lock className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-900">Customer Login</h3>
-                  <p className="text-xs text-slate-500 mt-1">Enter your assigned User ID and Password to sign in.</p>
+              <form onSubmit={handleSaveStoreSettings} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Store Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={adminSettingsForm.storeName}
+                    onChange={e => setAdminSettingsForm({ ...adminSettingsForm, storeName: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600"
+                  />
                 </div>
 
-                <form onSubmit={handleLogin} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">User ID</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Store Latitude</label>
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      value={adminSettingsForm.lat}
+                      onChange={e => setAdminSettingsForm({ ...adminSettingsForm, lat: parseFloat(e.target.value) })}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Store Longitude</label>
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      value={adminSettingsForm.lng}
+                      onChange={e => setAdminSettingsForm({ ...adminSettingsForm, lng: parseFloat(e.target.value) })}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Allowed Delivery Radius (in Kilometers)</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0.5"
+                    required
+                    value={adminSettingsForm.radiusKm}
+                    onChange={e => setAdminSettingsForm({ ...adminSettingsForm, radiusKm: parseFloat(e.target.value) })}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow-md shadow-emerald-600/20"
+                >
+                  Save Store Delivery Settings
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* TAB 3: PRODUCTS */}
+          {adminTab === 'products' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm h-fit">
+                <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
+                  <Plus className="w-5 h-5 text-emerald-600" /> Add New Product
+                </h2>
+                <form onSubmit={handleCreateProduct} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Product Name *</label>
                     <input
                       type="text"
                       required
-                      placeholder="e.g. USR4921 or admin"
-                      value={loginCreds.userId}
-                      onChange={e => setLoginCreds({ ...loginCreds, userId: e.target.value })}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600"
+                      value={newProd.name}
+                      onChange={e => setNewProd({ ...newProd, name: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-emerald-600"
                     />
                   </div>
-
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Password</label>
-                    <input
-                      type="password"
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Category *</label>
+                    <select
                       required
-                      placeholder="••••••••"
-                      value={loginCreds.password}
-                      onChange={e => setLoginCreds({ ...loginCreds, password: e.target.value })}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600"
-                    />
+                      value={newProd.category}
+                      onChange={e => setNewProd({ ...newProd, category: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-emerald-600"
+                    >
+                      <option value="">Select Category</option>
+                      {categories.map(c => (
+                        <option key={c._id} value={c._id}>{c.name}</option>
+                      ))}
+                    </select>
                   </div>
-
-                  <button
-                    type="submit"
-                    className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow-lg shadow-emerald-600/20"
-                  >
-                    Sign In
-                  </button>
-                </form>
-
-                <div className="mt-6 pt-6 border-t border-slate-100 text-center">
-                  <p className="text-xs text-slate-600 mb-2">Don't have a User ID & Password?</p>
-                  <button
-                    onClick={() => setAuthModal('request')}
-                    className="text-xs font-bold text-emerald-600 hover:text-emerald-700 hover:underline flex items-center justify-center gap-1 mx-auto"
-                  >
-                    Request New Account ID <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {authModal === 'request' && (
-              <div>
-                <div className="text-center mb-6">
-                  <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                    <UserIcon className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-900">Request User Account ID</h3>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Fill details below. Admin will generate your User ID and send it directly to your WhatsApp!
-                  </p>
-                </div>
-
-                <form onSubmit={handleRequestSubmit} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Your Full Name *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Gurpreet Singh"
-                      value={requestData.name}
-                      onChange={e => setRequestData({ ...requestData, name: e.target.value })}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">WhatsApp Phone Number *</label>
-                    <div className="relative">
-                      <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Price (₹) *</label>
                       <input
-                        type="tel"
+                        type="number"
                         required
-                        placeholder="9876543210"
-                        value={requestData.phone}
-                        onChange={e => setRequestData({ ...requestData, phone: e.target.value })}
-                        className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600"
+                        value={newProd.price}
+                        onChange={e => setNewProd({ ...newProd, price: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-emerald-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Stock</label>
+                      <input
+                        type="number"
+                        value={newProd.stock}
+                        onChange={e => setNewProd({ ...newProd, stock: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-emerald-600"
                       />
                     </div>
                   </div>
-
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Select Village Location *</label>
-                    <div className="relative">
-                      <Home className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <select
-                        required
-                        value={requestData.village}
-                        onChange={e => setRequestData({ ...requestData, village: e.target.value })}
-                        className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600 appearance-none"
-                      >
-                        {VILLAGES.map(v => (
-                          <option key={v} value={v}>{v}</option>
-                        ))}
-                      </select>
-                    </div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Image URL</label>
+                    <input
+                      type="url"
+                      value={newProd.image}
+                      onChange={e => setNewProd({ ...newProd, image: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-emerald-600"
+                    />
                   </div>
-
                   <button
                     type="submit"
-                    className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow-lg shadow-emerald-600/20"
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow-md shadow-emerald-600/20"
                   >
-                    Submit Access Request
+                    Save Product
                   </button>
                 </form>
-
-                <div className="mt-6 pt-4 border-t border-slate-100 text-center">
-                  <button
-                    onClick={() => setAuthModal('login')}
-                    className="text-xs font-bold text-slate-600 hover:text-slate-900"
-                  >
-                    ← Already have User ID? Sign In
-                  </button>
-                </div>
               </div>
-            )}
 
-            {authModal === 'pending' && (
-              <div className="text-center py-4">
-                <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
-                  <Send className="w-8 h-8" />
-                </div>
-                <h3 className="text-xl font-bold text-slate-900 mb-2">Request Submitted!</h3>
-                <p className="text-xs text-slate-600 mb-6 leading-relaxed">
-                  Thank you <b>{submittedReqInfo?.name}</b>! Your access request for <b>{submittedReqInfo?.village}</b> has been received. 
-                  Our Store Admin will process your request and send your <b>User ID & Password</b> to your WhatsApp number (<b>{submittedReqInfo?.phone}</b>).
-                </p>
-
-                <button
-                  onClick={() => setAuthModal(false)}
-                  className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition-all"
-                >
-                  Got It, Continue Browsing
-                </button>
+              <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden divide-y divide-slate-100">
+                {products.map(p => (
+                  <div key={p._id} className="p-4 flex items-center justify-between gap-4 hover:bg-slate-50">
+                    <div className="flex items-center gap-4">
+                      <img src={p.image} alt="" className="w-12 h-12 rounded-xl object-cover border border-slate-200" />
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-xs">{p.name}</h4>
+                        <span className="text-[11px] text-slate-500 font-medium">₹{p.price} • Stock: {p.stock}</span>
+                      </div>
+                    </div>
+                    <button onClick={() => handleDeleteProduct(p._id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
               </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: ADMIN APPROVAL & CREDENTIAL GENERATION */}
-      {approvalModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-3xl p-6 sm:p-8 shadow-2xl relative">
-            <button
-              onClick={() => setApprovalModal(null)}
-              className="absolute top-5 right-5 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="text-center mb-6">
-              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                <Send className="w-6 h-6" />
-              </div>
-              <h3 className="text-xl font-bold text-slate-900">Approve & Dispatch Credentials</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Generate credentials for <b>{approvalModal.name}</b> ({approvalModal.village}).
-              </p>
             </div>
+          )}
 
-            <form onSubmit={handleApproveUser} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Assign User ID</label>
-                <input
-                  type="text"
-                  required
-                  value={customCreds.userId}
-                  onChange={e => setCustomCreds({ ...customCreds, userId: e.target.value })}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold font-mono focus:outline-none focus:border-emerald-600"
-                />
+          {/* TAB 4: CATEGORIES */}
+          {adminTab === 'categories' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm h-fit">
+                <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
+                  <Plus className="w-5 h-5 text-emerald-600" /> Create Category
+                </h2>
+                <form onSubmit={handleCreateCategory} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Category Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={newCat.name}
+                      onChange={e => setNewCat({ ...newCat, name: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-emerald-600"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow-md shadow-emerald-600/20"
+                  >
+                    Save Category
+                  </button>
+                </form>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Assign Password</label>
-                <input
-                  type="text"
-                  required
-                  value={customCreds.password}
-                  onChange={e => setCustomCreds({ ...customCreds, password: e.target.value })}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold font-mono focus:outline-none focus:border-emerald-600"
-                />
+              <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200/80 shadow-sm p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {categories.map(c => (
+                  <div key={c._id} className="flex items-center justify-between p-3 border border-slate-100 rounded-2xl bg-slate-50">
+                    <span className="font-bold text-slate-900 text-xs">{c.name}</span>
+                    <button onClick={() => handleDeleteCategory(c._id)} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
               </div>
-
-              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3.5 text-[11px] text-emerald-800">
-                💡 Submitting will save the user account and automatically open <b>WhatsApp</b> with the login message prefilled for phone: <b>+91 {approvalModal.phone}</b>.
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2"
-              >
-                <Send className="w-4 h-4" /> Save User & Open WhatsApp
-              </button>
-            </form>
-          </div>
-        </div>
+            </div>
+          )}
+        </main>
       )}
 
       {/* SHOPPING CART DRAWER */}
@@ -1086,12 +821,9 @@ export default function App() {
             <div className="p-6 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ShoppingBag className="w-5 h-5 text-emerald-600" />
-                <h3 className="font-bold text-slate-900 text-base">Your Cart</h3>
+                <h3 className="font-bold text-slate-900 text-base">Your Shopping Cart</h3>
               </div>
-              <button
-                onClick={() => setIsCartOpen(false)}
-                className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
-              >
+              <button onClick={() => setIsCartOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1112,19 +844,9 @@ export default function App() {
                     </div>
 
                     <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-2 py-1">
-                      <button 
-                        onClick={() => updateCartQty(item._id, -1)}
-                        className="text-slate-500 font-bold hover:text-slate-900 text-xs px-1"
-                      >
-                        -
-                      </button>
+                      <button onClick={() => updateCartQty(item._id, -1)} className="text-slate-500 font-bold hover:text-slate-900 text-xs px-1">-</button>
                       <span className="text-xs font-bold text-slate-900 w-4 text-center">{item.qty}</span>
-                      <button 
-                        onClick={() => updateCartQty(item._id, 1)}
-                        className="text-slate-500 font-bold hover:text-slate-900 text-xs px-1"
-                      >
-                        +
-                      </button>
+                      <button onClick={() => updateCartQty(item._id, 1)} className="text-slate-500 font-bold hover:text-slate-900 text-xs px-1">+</button>
                     </div>
                   </div>
                 ))
@@ -1141,10 +863,13 @@ export default function App() {
                 </div>
 
                 <button
-                  onClick={handleCheckout}
+                  onClick={() => {
+                    setIsCartOpen(false);
+                    setCheckoutModal(true);
+                  }}
                   className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow-lg shadow-emerald-600/20"
                 >
-                  Complete Order
+                  Proceed to Checkout
                 </button>
               </div>
             )}
@@ -1152,10 +877,193 @@ export default function App() {
         </div>
       )}
 
+      {/* CHECKOUT MODAL WITH NO LOGIN & MAP RADIUS VERIFICATION */}
+      {checkoutModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-lg rounded-3xl p-6 sm:p-8 shadow-2xl relative my-8">
+            <button
+              onClick={() => setCheckoutModal(false)}
+              className="absolute top-5 right-5 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center mb-6">
+              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                <MapPin className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900">Checkout & Address Location</h3>
+              <p className="text-xs text-slate-500 mt-1">Enter your details and confirm your location on the map.</p>
+            </div>
+
+            <form onSubmit={handleOrderSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Rahul Sharma"
+                  value={checkoutForm.name}
+                  onChange={e => setCheckoutForm({ ...checkoutForm, name: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Mobile Number *</label>
+                <input
+                  type="tel"
+                  required
+                  placeholder="9876543210"
+                  value={checkoutForm.phone}
+                  onChange={e => setCheckoutForm({ ...checkoutForm, phone: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Street Address / Landmark</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="House no, Street name, Village"
+                  value={checkoutForm.addressText}
+                  onChange={e => setCheckoutForm({ ...checkoutForm, addressText: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600"
+                />
+              </div>
+
+              {/* Map Coordinates & GPS Auto Detect */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-bold text-slate-700">Delivery Location Pin</label>
+                  <button
+                    type="button"
+                    onClick={handleGetLocation}
+                    className="text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200"
+                  >
+                    <Navigation className="w-3.5 h-3.5" /> Detect My GPS Location
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mb-2">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-semibold">Latitude</span>
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      value={userLocation.lat}
+                      onChange={e => setUserLocation({ ...userLocation, lat: parseFloat(e.target.value) })}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-semibold">Longitude</span>
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      value={userLocation.lng}
+                      onChange={e => setUserLocation({ ...userLocation, lng: parseFloat(e.target.value) })}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Radius Distance Status Badge */}
+                <div className={`p-3.5 rounded-2xl text-xs border flex items-center gap-3 ${
+                  isWithinRadius 
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                    : 'bg-rose-50 border-rose-200 text-rose-800'
+                }`}>
+                  <MapPin className={`w-5 h-5 flex-shrink-0 ${isWithinRadius ? 'text-emerald-600' : 'text-rose-600'}`} />
+                  <div>
+                    {isWithinRadius ? (
+                      <p>
+                        <b>Address Confirmed!</b> Distance to store: <b>{calculatedDistance} km</b> (Within {storeSettings.radiusKm} km limit).
+                      </p>
+                    ) : (
+                      <p>
+                        <b>Delivery Not Available!</b> Distance: <b>{calculatedDistance} km</b>. We only deliver within <b>{storeSettings.radiusKm} km</b> of our store.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={!isWithinRadius}
+                className={`w-full py-3.5 font-bold rounded-xl text-xs transition-all shadow-lg flex items-center justify-center gap-2 ${
+                  isWithinRadius
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
+                    : 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none'
+                }`}
+              >
+                {isWithinRadius ? 'Confirm & Place Order' : `Only Delivery Under ${storeSettings.radiusKm} KM Radius`}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ADMIN LOGIN MODAL (/ayushnav) */}
+      {authModal === 'login' && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl p-6 sm:p-8 shadow-2xl relative">
+            <button onClick={() => setAuthModal(false)} className="absolute top-5 right-5 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100">
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center mb-6">
+              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                <Lock className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900">Admin Login</h3>
+              <p className="text-xs text-slate-500 mt-1">Sign in with admin credentials to manage store settings.</p>
+            </div>
+
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">User ID</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="admin"
+                  value={loginCreds.userId}
+                  onChange={e => setLoginCreds({ ...loginCreds, userId: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Password</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={loginCreds.password}
+                  onChange={e => setLoginCreds({ ...loginCreds, password: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow-lg shadow-emerald-600/20"
+              >
+                Sign In to Dashboard
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 mt-auto py-6">
         <div className="max-w-7xl mx-auto px-4 text-center text-xs text-slate-400">
-          Village Store MERN Stack E-Commerce & Admin Platform © {new Date().getFullYear()}
+          Dream Mega Mart E-Commerce & Admin Platform © {new Date().getFullYear()}
         </div>
       </footer>
 
